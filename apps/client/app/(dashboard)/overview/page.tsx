@@ -35,10 +35,13 @@ export default function OverviewPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
+    <div className="mx-auto max-w-2xl space-y-6 lg:max-w-6xl">
       <header>
-        <p className="text-xs font-medium tracking-widest text-ink-60">{formatGreetingDate(now)}</p>
-        <h1 className="mt-2 font-heading text-3xl font-bold text-ink md:text-4xl">
+        <p className="text-xs font-semibold uppercase tracking-widest text-ink-60">Overview</p>
+        <p className="mt-2 text-xs font-medium tracking-widest text-ink-60">
+          {formatGreetingDate(now)}
+        </p>
+        <h1 className="mt-1 font-heading text-3xl font-bold text-ink md:text-4xl">
           {greetingForHour(now.getHours())}, {data.client.firstName}.
         </h1>
       </header>

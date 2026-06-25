@@ -533,7 +533,8 @@ export function FactFindQuestionCard({
   direction: 'forward' | 'back';
 }) {
   const sectionLabel = useMemo(() => {
-    const map: Record<string, string> = {
+    const client1Sections = new Set(['personal', 'employment', 'income', 'commitments']);
+    const base: Record<string, string> = {
       personal: 'PERSONAL',
       employment: 'EMPLOYMENT',
       income: 'INCOME',
@@ -543,7 +544,8 @@ export function FactFindQuestionCard({
       goals: 'GOALS',
       vulnerability: 'VULNERABILITY',
     };
-    return map[question.section] ?? question.section.toUpperCase();
+    const label = base[question.section] ?? question.section.toUpperCase();
+    return client1Sections.has(question.section) ? `${label} — CLIENT 1` : label;
   }, [question.section]);
 
   return (

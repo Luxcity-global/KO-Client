@@ -573,7 +573,7 @@
 .ff-upload-fab {
   position: fixed;
   right: 24px;
-  bottom: 24px;
+  bottom: calc(24px + 64px); /* 64px = mobile bottom nav height */
   z-index: 40;
   display: inline-flex;
   align-items: center;
@@ -865,6 +865,13 @@
   .ff-q-label { font-size: 22px; }
   .ff-upload-fab {
     right: 16px;
-    bottom: 16px;
+    bottom: calc(16px + 64px);
+  }
+}
+
+@media (min-width: 1024px) {
+  /* Desktop: no bottom nav, restore normal FAB position */
+  .ff-upload-fab {
+    bottom: 24px;
   }
 }

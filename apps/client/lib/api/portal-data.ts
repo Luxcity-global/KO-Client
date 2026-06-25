@@ -89,8 +89,9 @@ export const MOCK_PORTAL_SESSION: PortalSession = {
   },
   tasks: [
     { id: '1', label: "Upload your last 3 months' payslips", completed: false },
-    { id: '2', label: 'Upload a bank statement from the past 3 months', completed: true },
+    { id: '2', label: 'Upload a bank statement from the past 3 months', completed: false },
     { id: '3', label: 'Confirm your employment start date', completed: true },
+    { id: '4', label: 'Sign and return the data consent form', completed: true },
   ],
   progressSteps: [
     { label: 'Information Gathering', status: 'completed' },
@@ -104,20 +105,32 @@ export const MOCK_MESSAGES: PortalMessage[] = [
   {
     id: 'msg-1',
     direction: 'OUTBOUND',
-    body: "Hi Sarah, thanks for getting started on your application. When you have a moment, could you upload your last 3 months' payslips and bank statements?",
-    createdAt: '2025-06-10T10:24:00.000Z',
+    body: "Hi Alexandra! I've reviewed your initial details. Everything looks good so far. I'll need your payslips and bank statements to move forward.",
+    createdAt: '2025-06-09T10:24:00.000Z',
   },
   {
     id: 'msg-2',
-    direction: 'OUTBOUND',
-    body: "We'll also need your most recent P60 when you get a chance. You can upload everything under Required Documents.",
-    createdAt: '2025-06-10T10:25:00.000Z',
+    direction: 'INBOUND',
+    body: "Hi James, thank you! I'll get those uploaded today.",
+    createdAt: '2025-06-09T10:35:00.000Z',
   },
   {
     id: 'msg-3',
+    direction: 'OUTBOUND',
+    body: 'Great. Once those are in I can submit to the lender. Also please upload your P60.',
+    createdAt: '2025-06-09T10:45:00.000Z',
+  },
+  {
+    id: 'msg-4',
     direction: 'INBOUND',
-    body: "Thanks James — I'll upload my payslips and bank statements this evening.",
-    createdAt: '2025-06-10T14:30:00.000Z',
+    body: 'Got it. Will have everything uploaded by this evening.',
+    createdAt: '2025-06-09T11:00:00.000Z',
+  },
+  {
+    id: 'msg-5',
+    direction: 'OUTBOUND',
+    body: "Perfect, no rush. I'll be in touch with the lender submission timeline once I have everything.",
+    createdAt: '2025-06-09T11:10:00.000Z',
   },
 ];
 

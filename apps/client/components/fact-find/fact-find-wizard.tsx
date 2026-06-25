@@ -135,7 +135,8 @@ export function FactFindWizard({
       </div>
 
       {/* Top bar */}
-      <header className="flex shrink-0 items-center justify-end border-b border-[#e4e4e7]/60 bg-white/95 px-6 py-3 pt-4 backdrop-blur-sm">
+      <header className="flex shrink-0 items-center justify-between border-b border-[#e4e4e7]/60 bg-white/95 px-6 py-3 pt-4 backdrop-blur-sm">
+        <span className="font-heading text-sm font-bold text-ink lg:hidden">My Application</span>
         <div className="flex items-center gap-4 text-xs text-zinc-400">
           {!preview && <FactFindSaveStatus label={saveLabel} saving={isSaving} />}
           <span>
