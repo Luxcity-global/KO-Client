@@ -1,0 +1,59 @@
+@import 'tailwindcss';
+
+@theme inline {
+  --color-brand-teal-900: #04342c;
+  --color-brand-teal-800: #085041;
+  --color-brand-teal-700: #0f6e56;
+  --color-brand-teal-500: #1d9e75;
+  --color-brand-teal-400: #5dcaa5;
+  --color-brand-teal-100: #9fe1cb;
+  --color-brand-teal-50: #e1f5ee;
+
+  --color-ink: #0d1f1a;
+  --color-ink-60: rgba(13, 31, 26, 0.6);
+  --color-ink-20: rgba(13, 31, 26, 0.12);
+  --color-ink-08: rgba(13, 31, 26, 0.06);
+
+  --color-surface: #f7fbf9;
+  --color-amber: #ef9f27;
+  --color-blue: #378add;
+  --color-brand-teal: var(--color-brand-teal-700);
+
+  --color-background: #ffffff;
+  --color-card: #ffffff;
+  --color-muted: #f0f4f2;
+  --color-muted-foreground: #71717a;
+  --color-accent: #e1f5ee;
+  --color-input-background: #ffffff;
+  --color-primary: var(--color-brand-teal-700);
+
+  /* Client sidebar active state (live demo) */
+  --color-nav-active-border: #00b8d9;
+  --color-nav-active-bg: #e9fcff;
+  --color-nav-icon-active: #00b8d9;
+  --color-nav-icon-idle: #535e5b;
+  --color-nav-text: #061f18;
+
+  --font-heading: var(--font-syne), 'Syne', sans-serif;
+  --font-display: var(--font-heading);
+  --font-body: var(--font-dm-sans), 'DM Sans', sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--color-ink);
+  background: var(--color-surface);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+}
