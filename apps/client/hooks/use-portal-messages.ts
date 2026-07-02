@@ -1,24 +1,17 @@
 'use client';
 
 import { usePortalAuth } from '@/components/portal-auth-provider';
+import { useMockPortalData } from '@/lib/api/invite-mode';
 import { useQuery } from '@tanstack/react-query';
 import { fetchPortalMessages } from '@/lib/api/portal-data';
-import { requireAuthToken } from '@/lib/api/errors';
-
-const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK_API !== 'false';
 
 export function usePortalMessages() {
-  const { getToken, isSignedIn } = usePortalAuth();
+  const { isSignedIn } = usePortalAuth();
+  const useMock = useMockPortalData();
 
   return useQuery({
-    queryKey: ['portal', 'messages'],
+    queryKey: ['portal', 'messages', useMock ? 'mock' : 'live'],
     enabled: isSignedIn,
-    queryFn: async () => {
-      if (USE_MOCK) {
-        return fetchPortalMessages();
-      }
-      const token = await requireAuthToken(getToken);
-      return fetchPortalMessages(token);
-    },
+    queryFn: () => fetchPortalMessages(),
   });
 }

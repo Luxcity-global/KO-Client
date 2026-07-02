@@ -15,13 +15,34 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { setMockPortalSession } from '@/components/portal-auth-provider';
-import { sendInviteOtp, verifyInviteOtp, type InviteValidation } from '@/lib/api/portal-data';
+import { PortalLoginForm } from '@/components/auth/portal-login-form';
+import {
+  clearMockPortalSession,
+  setMockPortalSession,
+  setPortalSignedIn,
+} from '@/components/portal-auth-provider';
+import {
+  loginPortal,
+  sendInviteOtp,
+  setupPortalAccount,
+  storeClientProfile,
+  verifyInviteOtp,
+  type InviteValidation,
+} from '@/lib/api/portal-data';
+import { useMockForInvite, useMockPortalData } from '@/lib/api/invite-mode';
+import { formatApiError, isAccountAlreadyConfiguredError, isInviteTokenConsumedError } from '@/lib/api/errors';
+import { markAccountConfigured } from '@/lib/api/invite-context';
 
 const MOCK_OTP_CODE = '123456';
 const MAX_ATTEMPTS = 3;
 
-export type InviteFlowStep = 'welcome' | 'set-password' | 'otp' | 'error' | 'verified';
+export type InviteFlowStep =
+  | 'welcome'
+  | 'set-password'
+  | 'otp'
+  | 'error'
+  | 'verified'
+  | 'login';
 
 type InviteFlowModalsProps = {
   invite: InviteValidation;
@@ -102,10 +123,12 @@ export function InviteFlowModals({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   const clientFirstName = invite.client.firstName;
   const clientName = `${invite.client.firstName} ${invite.client.lastName}`;
   const adviserName = `${invite.adviser.firstName} ${invite.adviser.lastName}`;
+  const useMockInvite = useMockForInvite(token);
 
   const handleSendVerification = useCallback(async () => {
     setLoading(true);
@@ -130,25 +153,65 @@ export function InviteFlowModals({
       setPasswordError('Passwords do not match.');
       return;
     }
-    // Password captured; now send the OTP and advance
+
     setLoading(true);
     setSendError(null);
     try {
-      await sendInviteOtp(token);
-      onStepChange('otp');
+      if (useMockInvite) {
+        await sendInviteOtp(token);
+        onStepChange('otp');
+        return;
+      }
+
+      await setupPortalAccount(token, password);
+      storeClientProfile(invite.client);
+      markAccountConfigured(invite.client.email);
+      setPortalSignedIn();
+      onStepChange('verified');
     } catch (err) {
-      setSendError(err instanceof Error ? err.message : 'Failed to send code');
+      if (isAccountAlreadyConfiguredError(err) || isInviteTokenConsumedError(err)) {
+        markAccountConfigured(invite.client.email);
+        onStepChange('login');
+        return;
+      }
+      setPasswordError(err instanceof Error ? err.message : 'Failed to set up account');
     } finally {
       setLoading(false);
     }
-  }, [password, confirmPassword, token, onStepChange]);
+  }, [password, confirmPassword, token, onStepChange, invite.client, useMockInvite]);
+
+  const handleLogin = useCallback(
+    async (email: string, password: string) => {
+      setLoading(true);
+      setLoginError(null);
+      try {
+        if (!useMockInvite) {
+          clearMockPortalSession();
+        }
+        await loginPortal(email, password);
+        storeClientProfile({ ...invite.client, email });
+        markAccountConfigured(email);
+        setPortalSignedIn();
+        router.replace('/overview');
+      } catch (err) {
+        if (useMockInvite) {
+          setMockPortalSession();
+          router.replace('/overview');
+          return;
+        }
+        setLoginError(formatApiError(err, { fallback: 'Login failed. Please check your credentials.' }));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [invite.client, router, useMockInvite],
+  );
 
   const handleVerify = useCallback(async () => {
     if (otp.length < 6) return;
     setLoading(true);
 
-    const isMock = process.env.NEXT_PUBLIC_USE_MOCK_API !== 'false';
-    if (isMock && otp !== MOCK_OTP_CODE) {
+    if (useMockInvite && otp !== MOCK_OTP_CODE) {
       await new Promise((r) => setTimeout(r, 500));
       const remaining = attemptsLeft - 1;
       setAttemptsLeft(remaining);
@@ -167,15 +230,44 @@ export function InviteFlowModals({
     } finally {
       setLoading(false);
     }
-  }, [otp, token, attemptsLeft, onStepChange]);
+  }, [otp, token, attemptsLeft, onStepChange, useMockInvite]);
 
   const handleBeginFactFind = useCallback(() => {
-    if (process.env.NEXT_PUBLIC_USE_MOCK_API !== 'false') {
+    if (useMockInvite) {
       setMockPortalSession();
     }
     onVerified();
     router.replace('/application');
-  }, [onVerified, router]);
+  }, [onVerified, router, useMockInvite]);
+
+  if (step === 'login') {
+    return (
+      <div className="fixed inset-0 z-[500] flex items-center justify-center bg-[#0d1f1a]/45 p-4 backdrop-blur-[2px]">
+        <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-teal-50 text-brand-teal-700">
+            <KeyRound className="h-6 w-6" aria-hidden />
+          </div>
+          <h2 className="text-center font-heading text-2xl font-bold text-[#18181b]">
+            Welcome back, {clientFirstName}
+          </h2>
+          <p className="mt-2 text-center text-sm text-[#71717a]">
+            Your portal account is already set up. Sign in with your email and password to access
+            your dashboard.
+          </p>
+          <div className="mt-6">
+            <PortalLoginForm
+              defaultEmail={invite.client.email}
+              emailReadOnly
+              loading={loading}
+              error={loginError}
+              mockHint={useMockPortalData() && useMockInvite}
+              onSubmit={handleLogin}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (step === 'welcome') {
     return (
@@ -200,8 +292,17 @@ export function InviteFlowModals({
             <strong>{invite.case.referenceNumber}</strong>.
             <br />
             <br />
-            To get started, you&apos;ll create a password then verify your email{' '}
-            <strong>{invite.client.email}</strong>.
+            {useMockInvite ? (
+              <>
+                To get started, you&apos;ll create a password then verify your email{' '}
+                <strong>{invite.client.email}</strong>.
+              </>
+            ) : (
+              <>
+                To get started, create a password for your portal account using{' '}
+                <strong>{invite.client.email}</strong>.
+              </>
+            )}
           </p>
           {sendError && <p className="mt-3 text-center text-sm text-red-600">{sendError}</p>}
           <Button
@@ -224,7 +325,7 @@ export function InviteFlowModals({
             <KeyRound className="h-6 w-6" aria-hidden />
           </div>
           <p className="text-center text-[11px] font-bold uppercase tracking-widest text-[#a1a1aa]">
-            Step 1 of 2
+            {useMockInvite ? 'Step 1 of 2' : 'Account setup'}
           </p>
           <h2 className="mt-2 text-center font-heading text-2xl font-bold text-[#18181b]">
             Create your password
@@ -312,8 +413,14 @@ export function InviteFlowModals({
             disabled={loading || !password || !confirmPassword}
             variant={!password || !confirmPassword ? 'outline' : 'default'}
           >
-            <Mail className="h-4 w-4" />
-            {loading ? 'Sending code…' : 'Continue'}
+            {useMockInvite ? <Mail className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
+            {loading
+              ? useMockInvite
+                ? 'Sending code…'
+                : 'Creating account…'
+              : useMockInvite
+                ? 'Continue'
+                : 'Create account'}
           </Button>
           <button
             type="button"
@@ -327,7 +434,7 @@ export function InviteFlowModals({
     );
   }
 
-  if (step === 'otp') {
+  if (step === 'otp' && useMockInvite) {
     return (
       <div className="fixed inset-0 z-[500] flex items-center justify-center bg-[#0d1f1a]/45 p-4 backdrop-blur-[2px]">
         <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
@@ -370,7 +477,7 @@ export function InviteFlowModals({
     );
   }
 
-  if (step === 'error') {
+  if (step === 'error' && useMockInvite) {
     return (
       <div className="fixed inset-0 z-[500] flex items-center justify-center bg-[#0d1f1a]/45 p-4 backdrop-blur-[2px]">
         <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">

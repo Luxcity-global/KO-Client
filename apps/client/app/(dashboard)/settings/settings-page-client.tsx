@@ -3,8 +3,11 @@
 import { LogOut, Settings, Bell, Mail, MessageSquare } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { clearMockPortalSession } from '@/components/portal-auth-provider';
+import { useQueryClient } from '@tanstack/react-query';
+import { usePortalAuth } from '@/components/portal-auth-provider';
 import { usePortalSession } from '@/hooks/use-portal-session';
+import { logoutPortal } from '@/lib/api/portal-data';
+import { useMockPortalData } from '@/lib/api/invite-mode';
 
 type NotificationSettings = {
   inApp: boolean;
@@ -40,6 +43,8 @@ function Toggle({
 
 export default function SettingsPageClient() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const { signOut } = usePortalAuth();
   const { data } = usePortalSession();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [notifications, setNotifications] = useState<NotificationSettings>({
@@ -51,8 +56,14 @@ export default function SettingsPageClient() {
   async function handleLogout() {
     setIsLoggingOut(true);
     try {
-      clearMockPortalSession();
-      router.replace('/invite');
+      if (useMockPortalData()) {
+        signOut();
+      } else {
+        await logoutPortal();
+        signOut();
+      }
+      queryClient.clear();
+      router.replace('/login');
     } finally {
       setIsLoggingOut(false);
     }

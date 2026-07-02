@@ -7,11 +7,18 @@ import {
   ffSaveToStorage,
   type ClientFactFindForm,
 } from '@/lib/fact-find/form-state';
+import { deserializeFactFind } from '@/lib/fact-find/deserialize';
 import { serializeFactFind } from '@/lib/fact-find/serialize';
+import { completeFactFind, fetchFactFind, updateFactFind } from '@/lib/api/portal-data';
 
 export type SaveLabel = 'idle' | 'saving' | 'saved' | 'offline';
 
-export function useFactFind(caseId: string, prefill?: { firstName?: string; lastName?: string; email?: string }) {
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK_API !== 'false';
+
+export function useFactFind(
+  caseId: string,
+  prefill?: { firstName?: string; lastName?: string; email?: string },
+) {
   const [form, setForm] = useState<ClientFactFindForm>(() => {
     if (typeof window !== 'undefined') {
       const stored = ffLoadFromStorage(caseId);
@@ -21,8 +28,40 @@ export function useFactFind(caseId: string, prefill?: { firstName?: string; last
   });
   const [saveLabel, setSaveLabel] = useState<SaveLabel>('idle');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(USE_MOCK);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (USE_MOCK) return;
+
+    let cancelled = false;
+
+    async function loadFromApi() {
+      try {
+        const data = await fetchFactFind();
+        if (cancelled) return;
+
+        const stored = ffLoadFromStorage(caseId);
+        if (!stored && data) {
+          const hydrated = deserializeFactFind(data, prefill);
+          setForm(hydrated);
+          ffSaveToStorage(caseId, hydrated);
+        }
+      } catch {
+        // Keep local draft if API load fails
+      } finally {
+        if (!cancelled) {
+          setIsLoaded(true);
+        }
+      }
+    }
+
+    void loadFromApi();
+    return () => {
+      cancelled = true;
+    };
+  }, [caseId, prefill]);
 
   const persist = useCallback(
     async (nextForm: ClientFactFindForm, markComplete = false) => {
@@ -31,18 +70,14 @@ export function useFactFind(caseId: string, prefill?: { firstName?: string; last
       setSaveLabel('saving');
 
       const payload = serializeFactFind(nextForm);
-      if (markComplete) payload.markComplete = true;
 
       try {
-        if (process.env.NEXT_PUBLIC_USE_MOCK_API !== 'false') {
+        if (USE_MOCK) {
           await new Promise((r) => setTimeout(r, 400));
+        } else if (markComplete) {
+          await completeFactFind();
         } else {
-          // Real API when broker ships
-          const { portalFetch } = await import('@/lib/api/client');
-          await portalFetch(`/api/portal/cases/${caseId}/fact-find`, {
-            method: 'PUT',
-            body: JSON.stringify(payload),
-          });
+          await updateFactFind(payload);
         }
         setSaveLabel('saved');
         if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
@@ -84,5 +119,5 @@ export function useFactFind(caseId: string, prefill?: { firstName?: string; last
     };
   }, []);
 
-  return { form, updateField, save: complete, isSaving, saveLabel, setForm };
+  return { form, updateField, save: complete, isSaving, saveLabel, isLoaded, setForm };
 }

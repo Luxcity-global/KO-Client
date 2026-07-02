@@ -18,6 +18,35 @@ const DEFAULT_MESSAGES: Record<ApiErrorCode, string> = {
   INTERNAL_ERROR: 'An unexpected error occurred. Please try again.',
 };
 
+export function isAccountAlreadyConfiguredError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+
+  const code = err.code.toUpperCase();
+  if (
+    code === 'ACCOUNT_ALREADY_CONFIGURED' ||
+    code === 'ALREADY_CONFIGURED' ||
+    code === 'CONFLICT' ||
+    code === 'ACCOUNT_EXISTS'
+  ) {
+    return true;
+  }
+
+  const message = err.message.toLowerCase();
+  return (
+    message.includes('already configured') ||
+    message.includes('already exists') ||
+    message.includes('already set up') ||
+    message.includes('already been set up')
+  );
+}
+
+export function isInviteTokenConsumedError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+  if (err.code !== 'NOT_FOUND') return false;
+  const message = err.message.toLowerCase();
+  return message.includes('invite token') || message.includes('expired');
+}
+
 export function isApiErrorCode(err: unknown, code: ApiErrorCode): boolean {
   return err instanceof ApiError && err.code === code;
 }
@@ -33,13 +62,22 @@ export function formatApiError(err: unknown, options?: { fallback?: string }): s
     return err.message || options?.fallback || DEFAULT_MESSAGES.INTERNAL_ERROR;
   }
 
+  if (err instanceof TypeError) {
+    return 'Cannot reach the portal API. Ensure KO-Broker is running on the configured API URL.';
+  }
+
   if (err instanceof Error && err.message) return err.message;
   return options?.fallback ?? DEFAULT_MESSAGES.INTERNAL_ERROR;
 }
 
 export async function requireAuthToken(
   getToken: () => Promise<string | null>,
-): Promise<string> {
+): Promise<string | undefined> {
+  const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK_API !== 'false';
+  if (!USE_MOCK) {
+    return undefined;
+  }
+
   const token = await getToken();
   if (!token) {
     throw new ApiError(API_ERROR_CODES.UNAUTHORIZED, DEFAULT_MESSAGES.UNAUTHORIZED, undefined, 401);

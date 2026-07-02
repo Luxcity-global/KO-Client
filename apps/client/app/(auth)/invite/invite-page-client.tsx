@@ -12,27 +12,50 @@ import { FactFindWizard } from '@/components/fact-find/fact-find-wizard';
 import { usePortalAuth } from '@/components/portal-auth-provider';
 import { validateInviteToken, type InviteValidation } from '@/lib/api/portal-data';
 
+function getInitialInviteStep(invite: InviteValidation): InviteFlowStep {
+  return invite.accountConfigured ? 'login' : 'welcome';
+}
+
 export function InvitePageClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { isSignedIn, isLoaded } = usePortalAuth();
-  const token = searchParams.get('token') ?? 'mock-invite-token';
+  const token = searchParams.get('token');
 
   const [invite, setInvite] = useState<InviteValidation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<InviteFlowStep>('welcome');
 
   useEffect(() => {
+    if (!token) {
+      router.replace('/login');
+    }
+  }, [token, router]);
+
+  useEffect(() => {
     if (isLoaded && isSignedIn) {
-      router.replace('/application');
+      router.replace('/overview');
     }
   }, [isLoaded, isSignedIn, router]);
 
   useEffect(() => {
+    if (!token) return;
+
     validateInviteToken(token)
-      .then(setInvite)
+      .then((validation) => {
+        setInvite(validation);
+        setStep(getInitialInviteStep(validation));
+      })
       .catch((err) => setError(err instanceof Error ? err.message : 'Invalid invite link'));
   }, [token]);
+
+  if (!token) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-surface text-sm text-ink-60">
+        Redirecting to sign in…
+      </div>
+    );
+  }
 
   if (error) {
     return (

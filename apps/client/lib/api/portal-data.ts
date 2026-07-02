@@ -1,4 +1,6 @@
 import type { CaseStage } from '@ko/types';
+import { loadInviteContext, storeInviteContext } from '@/lib/api/invite-context';
+import { useMockForInvite, useMockPortalData } from '@/lib/api/invite-mode';
 
 export type ProgressStepStatus = 'completed' | 'in_progress' | 'pending';
 
@@ -64,6 +66,26 @@ export interface InviteValidation {
   client: PortalClient;
   adviser: PortalAdviser;
   case: Pick<PortalCase, 'referenceNumber' | 'id'>;
+}
+
+export interface TokenVerification {
+  client: PortalClient & { id?: string };
+  case: Pick<PortalCase, 'referenceNumber' | 'id' | 'type' | 'stage'> | null;
+  adviser: Pick<PortalAdviser, 'firstName' | 'lastName' | 'email' | 'phone'>;
+}
+
+export interface PortalLoginResult {
+  id: string;
+  email: string;
+}
+
+export interface FactFindUpdateResult {
+  id: string;
+  completedAt: string | null;
+}
+
+export interface FactFindCompleteResult {
+  completedAt: string;
 }
 
 export const MOCK_PORTAL_SESSION: PortalSession = {
@@ -181,16 +203,107 @@ export const MOCK_DOCUMENTS: PortalDocumentTask[] = [
   },
 ];
 
-const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK_API !== 'false';
+
+const CLIENT_PROFILE_KEY = 'ko-portal-client-profile';
+
+export function storeClientProfile(client: PortalClient & { id?: string }) {
+  if (typeof window === 'undefined') return;
+  sessionStorage.setItem(CLIENT_PROFILE_KEY, JSON.stringify(client));
+}
+
+export function loadClientProfile(): (PortalClient & { id?: string }) | null {
+  if (typeof window === 'undefined') return null;
+  const raw = sessionStorage.getItem(CLIENT_PROFILE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as PortalClient & { id?: string };
+  } catch {
+    return null;
+  }
+}
+
+export function clearClientProfile() {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(CLIENT_PROFILE_KEY);
+}
+
+function buildFallbackSession(profile: PortalClient & { id?: string }): PortalSession {
+  return {
+    client: profile,
+    adviser: {
+      firstName: 'Your',
+      lastName: 'Adviser',
+      initials: 'YA',
+      phone: '',
+      email: '',
+      title: 'Your Mortgage Advisor',
+    },
+    case: {
+      id: 'portal',
+      referenceNumber: 'Your application',
+      stage: 'FACT_FIND',
+      clientStageLabel: 'In progress',
+      type: 'PURCHASE',
+    },
+    tasks: [],
+    progressSteps: [
+      { label: 'Information Gathering', status: 'in_progress' },
+      { label: 'Broker Review', status: 'pending' },
+      { label: 'KIP Submitted', status: 'pending' },
+      { label: 'Mortgage Offer', status: 'pending' },
+    ],
+  };
+}
+
+function buildSessionFromInvite(invite: InviteValidation): PortalSession {
+  return {
+    client: invite.client,
+    adviser: invite.adviser,
+    case: {
+      id: invite.case.id,
+      referenceNumber: invite.case.referenceNumber,
+      stage: 'FACT_FIND',
+      clientStageLabel: 'In progress',
+      type: 'PURCHASE',
+    },
+    tasks: [],
+    progressSteps: [
+      { label: 'Information Gathering', status: 'in_progress' },
+      { label: 'Broker Review', status: 'pending' },
+      { label: 'KIP Submitted', status: 'pending' },
+      { label: 'Mortgage Offer', status: 'pending' },
+    ],
+  };
+}
+
+function normalizePortalMessage(
+  message: Partial<PortalMessage> & Pick<PortalMessage, 'direction' | 'body'>,
+  index = 0,
+): PortalMessage {
+  return {
+    id: message.id ?? `msg-${index}-${Date.now()}`,
+    direction: message.direction,
+    body: message.body,
+    createdAt: message.createdAt ?? new Date().toISOString(),
+  };
+}
+
+function normalizePortalMessages(
+  messages: Array<Partial<PortalMessage> & Pick<PortalMessage, 'direction' | 'body'>>,
+) {
+  return messages.map((message, index) => normalizePortalMessage(message, index));
+}
 
 export async function fetchPortalDocuments(_token?: string): Promise<PortalDocumentTask[]> {
-  if (USE_MOCK) {
+  if (useMockPortalData()) {
     await delay();
     return MOCK_DOCUMENTS.map((d) => ({ ...d }));
   }
 
   const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
-  const res = await portalFetch<PortalDocumentTask[]>('/api/portal/documents', { token: _token });
+  const res = await portalFetch<PortalDocumentTask[]>('/api/portal/documents', {
+    token: _token,
+  });
   return unwrapPortalResponse(res);
 }
 
@@ -198,8 +311,8 @@ function delay(ms = 300) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function validateInviteToken(_token: string): Promise<InviteValidation> {
-  if (USE_MOCK) {
+export async function validateInviteToken(token: string): Promise<InviteValidation> {
+  if (useMockForInvite(token)) {
     await delay();
     return {
       client: MOCK_PORTAL_SESSION.client,
@@ -211,16 +324,110 @@ export async function validateInviteToken(_token: string): Promise<InviteValidat
     };
   }
 
+  const verification = await verifyPortalToken(token);
+  const invite: InviteValidation = {
+    client: verification.client,
+    adviser: {
+      firstName: verification.adviser.firstName,
+      lastName: verification.adviser.lastName,
+      initials: `${verification.adviser.firstName[0] ?? ''}${verification.adviser.lastName[0] ?? ''}`.toUpperCase(),
+      phone: verification.adviser.phone ?? '',
+      email: verification.adviser.email,
+      title: 'Your Mortgage Advisor',
+    },
+    case: {
+      id: verification.case?.id ?? '',
+      referenceNumber: verification.case?.referenceNumber ?? '',
+    },
+  };
+  storeInviteContext(invite);
+  storeClientProfile({
+    ...verification.client,
+    id: verification.client.id,
+  });
+  return invite;
+}
+
+export async function verifyPortalToken(token: string): Promise<TokenVerification> {
+  if (useMockForInvite(token)) {
+    await delay();
+    return {
+      client: MOCK_PORTAL_SESSION.client,
+      case: {
+        id: MOCK_PORTAL_SESSION.case.id,
+        referenceNumber: MOCK_PORTAL_SESSION.case.referenceNumber,
+        type: MOCK_PORTAL_SESSION.case.type,
+        stage: MOCK_PORTAL_SESSION.case.stage,
+      },
+      adviser: {
+        firstName: MOCK_PORTAL_SESSION.adviser.firstName,
+        lastName: MOCK_PORTAL_SESSION.adviser.lastName,
+        email: MOCK_PORTAL_SESSION.adviser.email,
+        phone: MOCK_PORTAL_SESSION.adviser.phone,
+      },
+    };
+  }
+
   const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
-  const res = await portalFetch<InviteValidation>('/api/portal/invite/validate', {
+  const res = await portalFetch<TokenVerification>('/api/portal/verify-token', {
     method: 'POST',
-    portalToken: _token,
+    body: JSON.stringify({ token }),
   });
   return unwrapPortalResponse(res);
 }
 
-export async function sendInviteOtp(_token: string): Promise<{ sent: boolean }> {
-  if (USE_MOCK) {
+export async function setupPortalAccount(
+  token: string,
+  password: string,
+): Promise<{ success: boolean; clientId: string }> {
+  if (useMockForInvite(token)) {
+    await delay();
+    return { success: true, clientId: 'mock-client' };
+  }
+
+  const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
+  const res = await portalFetch<{ success: boolean; clientId: string; sessionToken?: string }>(
+    '/api/portal/setup',
+    {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    },
+  );
+  return unwrapPortalResponse(res);
+}
+
+export async function loginPortal(email: string, password: string): Promise<PortalLoginResult> {
+  const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
+  const res = await portalFetch<{ success: boolean; clientId: string }>('/api/portal/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+  const data = unwrapPortalResponse(res);
+  const result = { id: data.clientId, email };
+  storeClientProfile({
+    email,
+    firstName: email.split('@')[0] ?? 'Client',
+    lastName: '',
+    id: data.clientId,
+  });
+  return result;
+}
+
+export async function logoutPortal(): Promise<void> {
+  if (useMockPortalData()) {
+    await delay();
+    return;
+  }
+
+  const { portalFetch } = await import('@/lib/api/client');
+  await portalFetch('/api/portal/logout', {
+    method: 'POST',
+  });
+  clearClientProfile();
+}
+
+export async function sendInviteOtp(token: string): Promise<{ sent: boolean }> {
+  if (useMockForInvite(token)) {
     await delay();
     return { sent: true };
   }
@@ -228,15 +435,15 @@ export async function sendInviteOtp(_token: string): Promise<{ sent: boolean }> 
   const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
   const res = await portalFetch<{ sent: boolean }>('/api/portal/invite/send-otp', {
     method: 'POST',
-    portalToken: _token,
+    portalToken: token,
   });
   return unwrapPortalResponse(res);
 }
 
-export async function verifyInviteOtp(_token: string, _code: string): Promise<{ verified: boolean }> {
-  if (USE_MOCK) {
+export async function verifyInviteOtp(token: string, code: string): Promise<{ verified: boolean }> {
+  if (useMockForInvite(token)) {
     await delay();
-    if (_code.length < 6) {
+    if (code.length < 6) {
       throw new Error('Invalid verification code');
     }
     return { verified: true };
@@ -245,55 +452,158 @@ export async function verifyInviteOtp(_token: string, _code: string): Promise<{ 
   const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
   const res = await portalFetch<{ verified: boolean }>('/api/portal/invite/verify-otp', {
     method: 'POST',
-    body: JSON.stringify({ code: _code }),
-    portalToken: _token,
+    body: JSON.stringify({ code }),
+    portalToken: token,
   });
   return unwrapPortalResponse(res);
 }
 
 export async function fetchPortalSession(_token?: string): Promise<PortalSession> {
-  if (USE_MOCK) {
+  if (useMockPortalData()) {
     await delay();
+    const invite = loadInviteContext();
+    if (invite) {
+      return buildSessionFromInvite(invite);
+    }
     return MOCK_PORTAL_SESSION;
   }
 
   const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
-  const res = await portalFetch<PortalSession>('/api/portal/me', { token: _token });
-  return unwrapPortalResponse(res);
+  try {
+    const res = await portalFetch<PortalSession>('/api/portal/me', {
+      token: _token,
+    });
+    const session = unwrapPortalResponse(res);
+    storeClientProfile(session.client);
+    return session;
+  } catch {
+    const profile = loadClientProfile();
+    if (profile) {
+      return buildFallbackSession(profile);
+    }
+    throw new Error('Session expired. Please sign in again.');
+  }
 }
 
 export async function fetchPortalCase(_token?: string): Promise<PortalSession> {
-  if (USE_MOCK) {
+  if (useMockPortalData()) {
     await delay();
+    const invite = loadInviteContext();
+    if (invite) {
+      return buildSessionFromInvite(invite);
+    }
     return MOCK_PORTAL_SESSION;
   }
 
-  const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
-  const res = await portalFetch<PortalSession>('/api/portal/cases', { token: _token });
-  return unwrapPortalResponse(res);
+  return fetchPortalSession(_token);
 }
 
 export async function fetchPortalTasks(_token?: string): Promise<PortalTask[]> {
-  if (USE_MOCK) {
+  if (useMockPortalData()) {
     await delay();
     return MOCK_PORTAL_SESSION.tasks;
   }
 
-  const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
-  const res = await portalFetch<PortalTask[]>(
-    `/api/portal/cases/${MOCK_PORTAL_SESSION.case.id}/tasks`,
-    { token: _token },
-  );
-  return unwrapPortalResponse(res);
+  try {
+    const session = await fetchPortalSession(_token);
+    return session.tasks;
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchPortalMessages(_token?: string): Promise<PortalMessage[]> {
-  if (USE_MOCK) {
+  if (useMockPortalData()) {
     await delay();
     return MOCK_MESSAGES;
   }
 
   const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
-  const res = await portalFetch<PortalMessage[]>('/api/portal/messages', { token: _token });
+  const res = await portalFetch<
+    Array<Partial<PortalMessage> & Pick<PortalMessage, 'direction' | 'body'>>
+  >('/api/portal/messages', {
+    token: _token,
+  });
+  return normalizePortalMessages(unwrapPortalResponse(res));
+}
+
+export async function sendPortalMessage(body: string, _token?: string): Promise<PortalMessage> {
+  if (useMockPortalData()) {
+    await delay();
+    return {
+      id: `msg-${Date.now()}`,
+      direction: 'INBOUND',
+      body,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
+  const res = await portalFetch<Partial<PortalMessage> & Pick<PortalMessage, 'direction' | 'body'>>(
+    '/api/portal/messages',
+    {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+      token: _token,
+    },
+  );
+  return normalizePortalMessage(unwrapPortalResponse(res));
+}
+
+export async function fetchFactFind(_token?: string) {
+  if (useMockPortalData()) {
+    await delay();
+    return {
+      personalDetails: {},
+      employmentDetails: {},
+      completedAt: null as string | null,
+    };
+  }
+
+  const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
+  const res = await portalFetch<{
+    personalDetails?: Record<string, unknown>;
+    employmentDetails?: Record<string, unknown>;
+    incomeDetails?: Record<string, unknown>;
+    expenditureDetails?: Record<string, unknown>;
+    propertyDetails?: Record<string, unknown>;
+    existingMortgages?: Record<string, unknown>;
+    clientPreferences?: Record<string, unknown>;
+    completedAt: string | null;
+  }>('/api/portal/fact-find', {
+    token: _token,
+  });
+  return unwrapPortalResponse(res);
+}
+
+export async function updateFactFind(
+  payload: Record<string, unknown>,
+  _token?: string,
+): Promise<FactFindUpdateResult> {
+  if (useMockPortalData()) {
+    await delay();
+    return { id: 'ff-mock', completedAt: null };
+  }
+
+  const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
+  const res = await portalFetch<FactFindUpdateResult>('/api/portal/fact-find', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+    token: _token,
+  });
+  return unwrapPortalResponse(res);
+}
+
+export async function completeFactFind(_token?: string): Promise<FactFindCompleteResult> {
+  if (useMockPortalData()) {
+    await delay();
+    return { completedAt: new Date().toISOString() };
+  }
+
+  const { portalFetch, unwrapPortalResponse } = await import('@/lib/api/client');
+  const res = await portalFetch<FactFindCompleteResult>('/api/portal/fact-find/complete', {
+    method: 'POST',
+    token: _token,
+  });
   return unwrapPortalResponse(res);
 }

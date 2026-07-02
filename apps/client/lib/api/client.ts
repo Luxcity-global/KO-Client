@@ -1,6 +1,7 @@
 import type { ApiResponse } from '@ko/types';
 
-const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
+/** Same-origin via Next.js rewrite — cookies work for portal session auth. */
+const BASE_URL = '';
 
 export class ApiError extends Error {
   constructor(
@@ -33,8 +34,39 @@ export async function portalFetch<T>(
     headers.set('Content-Type', 'application/json');
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
-  return res.json() as Promise<ApiResponse<T>>;
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers,
+    credentials: 'include',
+  });
+
+  let body: ApiResponse<T>;
+  try {
+    body = (await res.json()) as ApiResponse<T>;
+  } catch {
+    throw new ApiError(
+      'INTERNAL_ERROR',
+      res.statusText || 'Request failed',
+      undefined,
+      res.status,
+    );
+  }
+
+  if (!res.ok && body.success === false) {
+    throw new ApiError(
+      body.error.code,
+      body.error.message,
+      body.error.fields,
+      res.status,
+      body.error.details,
+    );
+  }
+
+  if (!res.ok) {
+    throw new ApiError('INTERNAL_ERROR', res.statusText || 'Request failed', undefined, res.status);
+  }
+
+  return body;
 }
 
 export function unwrapPortalResponse<T>(response: ApiResponse<T>): T {

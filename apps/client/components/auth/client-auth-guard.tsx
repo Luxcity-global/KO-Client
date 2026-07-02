@@ -16,7 +16,7 @@ export function ClientAuthGuard({ children }: { children: React.ReactNode }) {
 
     if (!isSignedIn) {
       const redirect = encodeURIComponent(pathname);
-      router.replace(`/invite?redirect_url=${redirect}`);
+      router.replace(`/login?redirect_url=${redirect}`);
     }
   }, [isLoaded, isSignedIn, pathname, router]);
 
