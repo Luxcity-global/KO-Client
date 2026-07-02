@@ -1,5 +1,5 @@
 import type { CaseStage } from '@ko/types';
-import { loadInviteContext, storeInviteContext } from '@/lib/api/invite-context';
+import { isAccountConfiguredLocally, loadInviteContext, storeInviteContext } from '@/lib/api/invite-context';
 import { useMockForInvite, useMockPortalData } from '@/lib/api/invite-mode';
 
 export type ProgressStepStatus = 'completed' | 'in_progress' | 'pending';
@@ -66,12 +66,16 @@ export interface InviteValidation {
   client: PortalClient;
   adviser: PortalAdviser;
   case: Pick<PortalCase, 'referenceNumber' | 'id'>;
+  accountConfigured?: boolean;
 }
 
 export interface TokenVerification {
   client: PortalClient & { id?: string };
   case: Pick<PortalCase, 'referenceNumber' | 'id' | 'type' | 'stage'> | null;
   adviser: Pick<PortalAdviser, 'firstName' | 'lastName' | 'email' | 'phone'>;
+  accountConfigured?: boolean;
+  portalEnabled?: boolean;
+  requiresLogin?: boolean;
 }
 
 export interface PortalLoginResult {
@@ -325,6 +329,10 @@ export async function validateInviteToken(token: string): Promise<InviteValidati
   }
 
   const verification = await verifyPortalToken(token);
+  const accountConfigured =
+    verification.accountConfigured === true ||
+    verification.requiresLogin === true ||
+    isAccountConfiguredLocally(verification.client.email);
   const invite: InviteValidation = {
     client: verification.client,
     adviser: {
@@ -339,6 +347,7 @@ export async function validateInviteToken(token: string): Promise<InviteValidati
       id: verification.case?.id ?? '',
       referenceNumber: verification.case?.referenceNumber ?? '',
     },
+    accountConfigured,
   };
   storeInviteContext(invite);
   storeClientProfile({
